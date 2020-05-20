@@ -1,33 +1,51 @@
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include <curand.h>
+#include <curand_kernel.h>
 
 #include <stdio.h>
 
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+cudaError_t findPIInitializer(int *circle_points, int *square_points, int size, int const INTERVALO);
 
-__global__ void addKernel(int *c, const int *a, const int *b)
+__global__ void findPIKernel(int *d_circle_points,  int *d_square_points, int const INTERVALO, unsigned int seed)
 {
-    int i = threadIdx.x;
-    c[i] = a[i] + b[i];
+    curandState_t state;
+    curand_init(seed, 0, 0, &state);
+
+    /* curand works like rand - except that it takes a state as a parameter */
+    double rand_x, rand_y, origin_dist;
+
+    rand_x = double(curand(&state) % INTERVALO) / INTERVALO;
+    rand_y = double(curand(&state) % INTERVALO) / INTERVALO;
+
+    // Distance between (x, y) from the origin 
+    origin_dist = rand_x * rand_x + rand_y * rand_y;
+
+    // Checking if (x, y) lies inside the define 
+    // circle with R=1 
+    if (origin_dist <= 1)
+        circle_points+=1;
+
+    // Total number of points generated 
+    square_points+=1;
 }
 
 int main()
 {
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+   
+
+    int circle_points, square_points; // copias locais do numero de pontos dentro do circulo e fora(no quadrado como um todo)
+    int *d_circle_points, *d_square_points; // device copies of a, b, c
+    int size = sizeof(int);
+    int const INTERVALO = 10;
 
     // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
+    cudaError_t cudaStatus = findPIInitializer(circle_points, square_points, size, INTERVALO);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "addWithCuda failed!");
         return 1;
     }
-
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
 
     // cudaDeviceReset must be called before exiting in order for profiling and
     // tracing tools such as Nsight and Visual Profiler to show complete traces.
@@ -41,11 +59,9 @@ int main()
 }
 
 // Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
+cudaError_t findPIInitializer(int *circle_points, int *square_points, int size, int const INTERVALO)
 {
-    int *dev_a = 0;
-    int *dev_b = 0;
-    int *dev_c = 0;
+    int *d_circle_points, *d_square_points;
     cudaError_t cudaStatus;
 
     // Choose which GPU to run on, change this on a multi-GPU system.
@@ -55,45 +71,42 @@ cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
         goto Error;
     }
 
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-    cudaStatus = cudaMalloc((void**)&dev_c, size * sizeof(int));
+    // Allocate space for device copies of a, b, c.
+    cudaStatus = cudaMalloc((void **)&d_circle_points, size);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_a, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_b, size * sizeof(int));
+    cudaStatus = cudaMalloc((void **)&d_square_points, size);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
     }
 
     // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(d_circle_points, circle_points, size, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(d_square_points, square_points, size, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
     // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
+    srand(time(NULL));
+    int threadsPerBlock = 256;
+    int blocksPerGrid = (INTERVALO + threadsPerBlock - 1) / threadsPerBlock;
+    findPIKernel<<<blocksPerGrid, threadsPerBlock>>>(d_circle_points, d_square_points, INTERVALO, time(NULL));
 
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+        fprintf(stderr, "findPIKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
         goto Error;
     }
     
@@ -106,7 +119,13 @@ cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
     }
 
     // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaStatus = cudaMemcpy(circle_points d_circle_points, size, cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
+
+    cudaStatus = cudaMemcpy(square_points d_square_points, size, cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
