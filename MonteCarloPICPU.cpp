@@ -8,8 +8,9 @@
 
    // Defines precision for x and y values. More the 
    // interval, more the number of significant digits 
-#define INTERVAL 1000 
+#define INTERVAL 100000
 using namespace std;
+#include <chrono>
 
 int main()
 {
@@ -22,6 +23,7 @@ int main()
 
     // Total Random numbers generated = possible x 
     // values * possible y values 
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     for (i = 0; i < (INTERVAL * INTERVAL); i++) {
 
         // Randomly generated x and y values 
@@ -42,18 +44,21 @@ int main()
         // estimated pi after this iteration 
         pi = double(4 * circle_points) / square_points;
 
-        // For visual understanding (Optional) 
-        cout << rand_x << " " << rand_y << " " << circle_points
-            << " " << square_points << " - " << pi << endl << endl;
+        //// For visual understanding (Optional) 
+        //cout << rand_x << " " << rand_y << " " << circle_points
+        //    << " " << square_points << " - " << pi << endl << endl;
 
         // Pausing estimation for first 10 values (Optional) 
         /*if (i < 20)
             getchar();*/
     }
-
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
     // Final Estimated Value 
+
+    std::cout << "Time difference (sec) = " << (std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()) / 1000000.0 << std::endl;
     cout << "\n\nFinal Estimation of Pi = " << pi;
     cout << "\nNumero de interacoes = " << i << endl << endl;
 
     return 0;
 }
+
