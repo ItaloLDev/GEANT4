@@ -8,7 +8,7 @@
 
    // Defines precision for x and y values. More the 
    // interval, more the number of significant digits 
-#define INTERVAL 10 
+#define INTERVAL 1000 
 using namespace std;
 
 int main()
